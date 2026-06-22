@@ -298,6 +298,7 @@ td.cell-deleted{
   <button class="btn btn-ghost" onclick="document.getElementById('restore-file').click()">⬆️ 복원</button>
   <input type="file" id="restore-file" accept="application/json,.json" style="display:none" onchange="restoreAll(event)">
   <button class="btn btn-accent" onclick="showAnnual()">📋 연간 출력</button>
+  <button class="btn btn-ghost" onclick="doLogout()">로그아웃</button>
 </div>
 
 <div class="mid-layout">
@@ -877,6 +878,7 @@ window.showAnnual=showAnnual;window.printAnnual=printAnnual;
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import{getFirestore,doc,getDoc,setDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 const firebaseConfig={
   apiKey:"AIzaSyDrLUTeolK_zx5O_rsCfZxdvCCdCemj4EE",
   authDomain:"timetable2026-9df5d.firebaseapp.com",
@@ -887,6 +889,9 @@ const firebaseConfig={
 };
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
+const auth=getAuth(app);
+const provider=new GoogleAuthProvider();
+const OWNER_EMAIL='eloquent05@gmail.com'; // 편집 권한을 가질 관리자 Google 계정
 function renderAll(){renderCalendar();renderTimetable();renderMemoArea();renderSummary();}
 
 // 로드 완전 실패(백업도 없음) 시 화면을 덮어 편집을 막는 잠금 배너
@@ -962,7 +967,41 @@ async function saveMemoToFirestore(type){
 }
 window.saveScheduleToFirestore=saveScheduleToFirestore;
 window.saveMemoToFirestore=saveMemoToFirestore;
-loadFromFirestore();
+
+// ===== Google 로그인 게이트 =====
+function showLogin(msg){
+  let o=document.getElementById('login-overlay');
+  if(!o){
+    o=document.createElement('div');o.id='login-overlay';
+    o.style.cssText='position:fixed;inset:0;z-index:6000;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;';
+    o.innerHTML='<div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px 36px;max-width:380px;text-align:center;box-shadow:0 10px 50px rgba(0,0,0,0.15);">'+
+      '<div style="font-size:1.3rem;font-weight:900;color:var(--accent2);margin-bottom:6px;">📅 시간표 편집</div>'+
+      '<div style="font-size:0.8rem;color:var(--text2);line-height:1.6;margin-bottom:20px;">편집하려면 관리자 Google 계정으로<br>로그인하세요.</div>'+
+      '<button id="login-btn" class="btn btn-accent" style="font-size:0.9rem;padding:10px 22px;">Google 계정으로 로그인</button>'+
+      '<div id="login-msg" style="font-size:0.75rem;color:var(--holiday);margin-top:14px;min-height:14px;line-height:1.5;"></div>'+
+      '</div>';
+    document.body.appendChild(o);
+    document.getElementById('login-btn').onclick=doLogin;
+  }
+  const m=document.getElementById('login-msg');if(m)m.textContent=msg||'';
+  o.style.display='flex';
+}
+function hideLogin(){const o=document.getElementById('login-overlay');if(o)o.style.display='none';}
+function doLogin(){signInWithPopup(auth,provider).catch(e=>{showLogin('로그인 실패: '+((e&&e.message)||e));});}
+function doLogout(){signOut(auth);}
+window.doLogin=doLogin;window.doLogout=doLogout;
+
+let appStarted=false;
+onAuthStateChanged(auth,user=>{
+  if(user&&user.email===OWNER_EMAIL){
+    hideLogin();
+    if(!appStarted){appStarted=true;loadFromFirestore();} // 로그인 성공 후에만 데이터 로드
+  }else if(user){
+    showLogin('이 계정('+user.email+')은 편집 권한이 없습니다.\n관리자 계정으로 다시 로그인하세요.');
+  }else{
+    showLogin('');
+  }
+});
 </script>
 </body>
 </html>
