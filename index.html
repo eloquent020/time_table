@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>3,4과학/1,2통합 시간표 (뷰어) v4.2</title>
+<title>3,4과학/1,2통합 시간표 v4</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;900&family=Bebas+Neue&display=swap');
 :root{
@@ -286,29 +286,17 @@ td.cell-deleted{
 .memo-list-item .mw{font-size:0.75rem;color:var(--accent2);font-weight:700;margin-bottom:4px;}
 .memo-list-item .mt{font-size:0.8rem;color:var(--text);white-space:pre-wrap;line-height:1.5;}
 .version-tag{position:fixed;bottom:4px;left:8px;font-size:0.6rem;color:var(--text2);opacity:0.4;}
-/* 뷰어: 셀 클릭 비활성화 */
-td.class-cell{cursor:default!important;}
-td.class-cell:hover:not(.holiday-cell):not(.vacation-cell){filter:none!important;transform:none!important;}
-/* 뷰어: 수업변경 메모 읽기전용 박스 */
-.memo-viewer-box{
-  background:var(--card);border:1px solid var(--border);border-radius:10px;
-  padding:10px 14px;display:flex;flex-direction:column;gap:6px;min-height:0;
-}
-.memo-viewer-title{font-size:0.8rem;font-weight:700;color:var(--accent2);}
-.memo-viewer-week{font-size:0.7rem;color:var(--text2);margin-bottom:2px;}
-.memo-viewer-text{
-  flex:1;font-size:0.85rem;color:var(--text);white-space:pre-wrap;
-  line-height:1.6;overflow-y:auto;
-  background:var(--bg3);border-radius:7px;padding:8px 10px;
-}
 </style>
 </head>
 <body>
 
 <div class="action-bar">
   <span id="sync-status"></span>
-  <span style="font-size:0.75rem;color:var(--text2);background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:4px 10px;">👁️ 뷰어 모드</span>
-  <button class="btn btn-ghost" onclick="showMemoModal()">📝 수업변경 메모 보기</button>
+  <button class="btn btn-ghost" onclick="showMemoModal()">📝 메모 전체보기</button>
+  <button class="btn btn-accent2" onclick="saveMemoFile()">💾 메모 저장</button>
+  <button class="btn btn-ghost" onclick="backupAll()">⬇️ 전체 백업</button>
+  <button class="btn btn-ghost" onclick="document.getElementById('restore-file').click()">⬆️ 복원</button>
+  <input type="file" id="restore-file" accept="application/json,.json" style="display:none" onchange="restoreAll(event)">
   <button class="btn btn-accent" onclick="showAnnual()">📋 연간 출력</button>
 </div>
 
@@ -330,10 +318,20 @@ td.class-cell:hover:not(.holiday-cell):not(.vacation-cell){filter:none!important
 </div>
 
 <div class="bottom-layout">
-  <div class="memo-viewer-box">
-    <div class="memo-viewer-title">📢 수업변경 메모</div>
-    <div class="memo-viewer-week" id="memo-week-title"></div>
-    <div class="memo-viewer-text" id="memo-shared-viewer">(이번 주 수업 변경 내용 없음)</div>
+  <div class="memo-outer">
+    <div class="memo-top" id="memo-week-title">📝 메모</div>
+    <div class="memo-cols">
+      <div class="memo-col">
+        <div class="memo-col-title" style="color:var(--text2)">🔒 개인 메모 (뷰어 비공개)</div>
+        <textarea id="memo-private" placeholder="개인 메모..."></textarea>
+        <div class="memo-saved" id="memo-saved-private">✓ 저장됨</div>
+      </div>
+      <div class="memo-col">
+        <div class="memo-col-title" style="color:var(--accent2)">📢 수업변경 메모 (뷰어 공개)</div>
+        <textarea id="memo-shared" placeholder="수업 변경 내용, 공지사항..."></textarea>
+        <div class="memo-saved" id="memo-saved-shared">✓ 저장됨</div>
+      </div>
+    </div>
   </div>
 
   <div class="summary-panel">
@@ -373,19 +371,20 @@ td.class-cell:hover:not(.holiday-cell):not(.vacation-cell){filter:none!important
 
 <div class="modal-overlay" id="memo-modal">
   <div class="modal-box">
-    <h2>📝 주별 수업변경 메모</h2>
+    <h2>📝 주별 메모 전체보기</h2>
     <div id="memo-modal-content"></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="document.getElementById('memo-modal').classList.remove('show')">닫기</button>
+      <button class="btn btn-accent2" onclick="saveMemoFile()">💾 파일 저장</button>
       <button class="btn btn-accent" onclick="printMemos()">🖨️ 인쇄</button>
     </div>
   </div>
 </div>
 
-<div class="version-tag">v4.8 viewer</div>
+<div class="version-tag">v4.8</div>
 
 <script>
-const IS_VIEWER = true;
+const IS_VIEWER = false;
 const QUOTA = {"1빛": {"sem1": 34, "sem2": 34}, "1샘": {"sem1": 34, "sem2": 34}, "2빛": {"sem1": 34, "sem2": 34}, "2샘": {"sem1": 34, "sem2": 34}, "3빛": {"sem1": 52, "sem2": 50}, "4빛": {"sem1": 52, "sem2": 50}, "4샘": {"sem1": 52, "sem2": 50}, "보충": {"sem1": 23, "sem2": null}};
 const HOLIDAYS = new Set([
   '2026-03-02','2026-05-01','2026-05-04','2026-05-05','2026-05-25',
@@ -406,9 +405,12 @@ function getVacationType(ds){
   if(m===1||m===2||(m===3&&day<=2)) return '겨울방학';
   return null;
 }
+// 수업 없는 특별일: 개학식(학기 시작일) + 방학식(학기 마지막날)
 const NO_CLASS_DAYS = {
-  '2026-03-03':'개학식','2026-08-14':'개학식',
-  '2026-07-22':'방학식','2026-12-31':'방학식',
+  '2026-03-03':'개학식',
+  '2026-08-14':'개학식',
+  '2026-07-22':'방학식',
+  '2026-12-31':'방학식',
 };
 function isNoClassDay(ds){return NO_CLASS_DAYS[ds]!==undefined;}
 const CLASSES=['1빛','1샘','2빛','2샘','3빛','4빛','4샘','보충','-'];
@@ -435,12 +437,22 @@ let viewDate=new Date(today);
 let selectedMonday=getMonday(today);
 let scheduleData={},memoPrivate={},memoShared={};
 let memoTimerP=null,memoTimerS=null,saveTimer=null;
+// ⛔ 핵심 안전장치: 클라우드(또는 로컬 백업)에서 1회 이상 "정상 로드"되기 전에는 절대 저장하지 않는다.
+//    (로드 실패 직후 빈 데이터로 클라우드를 덮어쓰는 사고를 막음)
+let dataLoaded=false;
+const CACHE_KEY='timetable2026_cache_v1';
+function writeCache(){
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify({schedule:scheduleData,memoPrivate,memoShared,ts:Date.now()}));}catch(e){}
+}
+function readCache(){
+  try{const r=localStorage.getItem(CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}
+}
 
 function getMonday(d){
   // 일~토를 한 주로 인식: 해당 날짜가 속한 주의 '일요일' 반환
   const dt=new Date(d);dt.setHours(0,0,0,0);
-  const day=dt.getDay();
-  dt.setDate(dt.getDate()-day);
+  const day=dt.getDay(); // 0=일,1=월...6=토
+  dt.setDate(dt.getDate()-day); // 일요일로 이동
   return dt;
 }
 function addDays(d,n){const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt;}
@@ -463,7 +475,7 @@ function getCell(ds,pi){
   if(col<0||col>4)return '-';
   return(DEFAULT_TT[pi]&&DEFAULT_TT[pi][col])||'-';
 }
-function setCell(ds,pi,val){scheduleData[ds+'_'+pi]=val;scheduleSave();}
+function setCell(ds,pi,val){scheduleData[ds+'_'+pi]=val;if(dataLoaded)writeCache();scheduleSave();}
 function getCellState(ds,pi){
   const k=ds+'_'+pi;
   if(scheduleData[k]===undefined)return 'default';
@@ -580,6 +592,7 @@ function renderTimetable(){
         if(state==='modified')cls+=(val==='보충'?' cell-modified-보충':' cell-modified');
         else if(state==='deleted')cls+=' cell-deleted';
         td.className=cls;
+        // 삭제된 수업은 원래 학급명을 그대로 표시 (취소선)
         if(state==='deleted'){
           const col=new Date(ds).getDay()-1;
           const orig=(col>=0&&col<=4&&DEFAULT_TT[pi]&&DEFAULT_TT[pi][col])||'-';
@@ -587,7 +600,7 @@ function renderTimetable(){
         } else {
           td.textContent=val;
         }
-        // 뷰어: 클릭 비활성화
+        td.onclick=()=>openPopup(ds,pi,d,p.label);
       }
       tr.appendChild(td);
     }
@@ -598,12 +611,25 @@ function renderTimetable(){
 
 function renderMemoArea(){
   const key=fmt(selectedMonday),mon=addDays(selectedMonday,1),fri=addDays(mon,4);
-  const wt=document.getElementById('memo-week-title');
-  if(wt)wt.textContent=fmt(mon)+' (월) ~ '+fmt(fri)+' (금)';
-  const sv=document.getElementById('memo-shared-viewer');
-  if(sv)sv.textContent=memoShared[key]&&memoShared[key].trim()?memoShared[key]:'(이번 주 수업 변경 내용 없음)';
+  document.getElementById('memo-week-title').textContent='📝 '+fmt(mon)+' ~ '+fmt(fri);
+  document.getElementById('memo-private').value=memoPrivate[key]||'';
+  document.getElementById('memo-shared').value=memoShared[key]||'';
 }
-function setupMemoAutoSave(){/* 뷰어: 저장 없음 */}
+let memoAutoSaveReady=false;
+function setupMemoAutoSave(){
+  if(memoAutoSaveReady)return; // 리스너 중복 등록 방지 (다시 불러오기 시)
+  memoAutoSaveReady=true;
+  const mp=document.getElementById('memo-private');
+  if(mp)mp.addEventListener('input',()=>{
+    clearTimeout(memoTimerP);
+    memoTimerP=setTimeout(()=>{memoPrivate[fmt(selectedMonday)]=mp.value;if(dataLoaded)writeCache();saveMemoToFirestore('private');},800);
+  });
+  const ms=document.getElementById('memo-shared');
+  if(ms)ms.addEventListener('input',()=>{
+    clearTimeout(memoTimerS);
+    memoTimerS=setTimeout(()=>{memoShared[fmt(selectedMonday)]=ms.value;if(dataLoaded)writeCache();saveMemoToFirestore('shared');},800);
+  });
+}
 
 let sumTab='week';
 function setSumTab(t){
@@ -685,15 +711,20 @@ window.closePopupBg=closePopupBg;window.closePopup=closePopup;
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function showMemoModal(){
-  const entries=Object.keys(memoShared).filter(k=>memoShared[k]&&memoShared[k].trim()).sort();
+  const mp=document.getElementById('memo-private');if(mp)memoPrivate[fmt(selectedMonday)]=mp.value;
+  const ms=document.getElementById('memo-shared');if(ms)memoShared[fmt(selectedMonday)]=ms.value;
+  const allKeys=new Set([...Object.keys(memoPrivate),...Object.keys(memoShared)]);
+  const entries=[...allKeys].filter(k=>(memoPrivate[k]&&memoPrivate[k].trim())||(memoShared[k]&&memoShared[k].trim())).sort();
   const cont=document.getElementById('memo-modal-content');
-  if(!entries.length){
-    cont.innerHTML='<p style="color:var(--text2);font-size:0.82rem;padding:10px 0">저장된 수업변경 메모가 없습니다.</p>';
+  if(!entries.length){cont.innerHTML='<p style="color:var(--text2);font-size:0.82rem;padding:10px 0">저장된 메모가 없습니다.</p>';
   }else{
-    cont.innerHTML=entries.map(k=>{
-      const fri=fmt(addDays(new Date(k),4));
-      return'<div class="memo-list-item"><div class="mw">'+k+' ~ '+fri+'</div><div class="mt">'+escHtml(memoShared[k])+'</div></div>';
-    }).join('');
+    const pE=entries.filter(k=>memoPrivate[k]&&memoPrivate[k].trim());
+    const sE=entries.filter(k=>memoShared[k]&&memoShared[k].trim());
+    let h='<div class="modal-cols"><div class="modal-col"><h3>🔒 개인 메모</h3>';
+    h+=pE.length?pE.map(k=>{const fri=fmt(addDays(new Date(k),4));return'<div class="memo-list-item"><div class="mw">'+k+' ~ '+fri+'</div><div class="mt">'+escHtml(memoPrivate[k])+'</div></div>';}).join(''):'<p style="color:var(--text2);font-size:0.8rem">없음</p>';
+    h+='</div><div class="modal-col"><h3>📢 수업변경 메모</h3>';
+    h+=sE.length?sE.map(k=>{const fri=fmt(addDays(new Date(k),4));return'<div class="memo-list-item"><div class="mw">'+k+' ~ '+fri+'</div><div class="mt">'+escHtml(memoShared[k])+'</div></div>';}).join(''):'<p style="color:var(--text2);font-size:0.8rem">없음</p>';
+    h+='</div></div>';cont.innerHTML=h;
   }
   document.getElementById('memo-modal').classList.add('show');
 }
@@ -718,6 +749,38 @@ function saveMemoFile(){
   a.download='시간표_메모_'+fmt(today)+'.txt';a.click();URL.revokeObjectURL(a.href);
 }
 window.saveMemoFile=saveMemoFile;
+
+// 전체 데이터(시간표+메모)를 JSON 파일로 내보내기
+function backupAll(){
+  const data={schedule:scheduleData,memoPrivate:memoPrivate,memoShared:memoShared,exportedAt:new Date().toISOString(),version:'v4.8'};
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  a.download='시간표_전체백업_'+fmt(today)+'.json';a.click();URL.revokeObjectURL(a.href);
+}
+window.backupAll=backupAll;
+
+// JSON 백업 파일로 복원 (기존 값과 병합 → 키 손실 없음)
+function restoreAll(ev){
+  const file=ev.target.files&&ev.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const d=JSON.parse(reader.result);
+      if(!confirm('백업 파일의 내용을 현재 데이터에 반영합니다.\n(클라우드에도 동기화됩니다) 계속할까요?')){ev.target.value='';return;}
+      if(d.schedule)Object.assign(scheduleData,d.schedule);
+      if(d.memoPrivate)Object.assign(memoPrivate,d.memoPrivate);
+      if(d.memoShared)Object.assign(memoShared,d.memoShared);
+      dataLoaded=true;writeCache();
+      renderCalendar();renderTimetable();renderMemoArea();renderSummary();
+      if(window.saveScheduleToFirestore)window.saveScheduleToFirestore();
+      if(window.saveMemoToFirestore){window.saveMemoToFirestore('private');window.saveMemoToFirestore('shared');}
+      alert('복원 완료 ✅');
+    }catch(e){alert('복원 실패: 올바른 백업 파일이 아닙니다.');}
+    ev.target.value='';
+  };
+  reader.readAsText(file,'utf-8');
+}
+window.restoreAll=restoreAll;
 
 function printMemos(){
   const allKeys=new Set([...Object.keys(memoPrivate),...Object.keys(memoShared)]);
@@ -813,7 +876,7 @@ window.showAnnual=showAnnual;window.printAnnual=printAnnual;
 
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getFirestore,doc,getDoc,setDoc,onSnapshot}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{getFirestore,doc,getDoc,setDoc}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 const firebaseConfig={
   apiKey:"AIzaSyDrLUTeolK_zx5O_rsCfZxdvCCdCemj4EE",
   authDomain:"timetable2026-9df5d.firebaseapp.com",
@@ -824,31 +887,79 @@ const firebaseConfig={
 };
 const app=initializeApp(firebaseConfig);
 const db=getFirestore(app);
-// 뷰어: 실시간 onSnapshot으로 자동 반영
+function renderAll(){renderCalendar();renderTimetable();renderMemoArea();renderSummary();}
+
+// 로드 완전 실패(백업도 없음) 시 화면을 덮어 편집을 막는 잠금 배너
+function showLockBanner(msg){
+  let b=document.getElementById('lock-banner');
+  if(!b){
+    b=document.createElement('div');b.id='lock-banner';
+    b.style.cssText='position:fixed;inset:0;z-index:5000;background:rgba(20,30,20,0.82);display:flex;align-items:center;justify-content:center;padding:20px;';
+    b.innerHTML='<div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px 28px;max-width:440px;text-align:center;box-shadow:0 10px 50px rgba(0,0,0,0.5);">'+
+      '<div style="font-size:1.6rem;margin-bottom:10px;">⚠️</div>'+
+      '<div id="lock-msg" style="font-size:0.9rem;color:var(--text);line-height:1.6;margin-bottom:8px;font-weight:700;"></div>'+
+      '<div style="font-size:0.78rem;color:var(--text2);line-height:1.6;margin-bottom:16px;">지금 보이는 시간표는 <b>기본값(빈 시간표)</b>일 뿐, 저장된 데이터가 삭제된 것이 아닙니다.<br>데이터를 보호하기 위해 <b>편집이 잠겼습니다.</b> 인터넷 연결을 확인한 뒤 다시 시도하세요.</div>'+
+      '<button id="lock-retry" class="btn btn-accent" style="font-size:0.85rem;padding:8px 20px;">🔄 다시 불러오기</button>'+
+      '</div>';
+    document.body.appendChild(b);
+    document.getElementById('lock-retry').onclick=()=>{b.remove();loadFromFirestore();};
+  }
+  document.getElementById('lock-msg').textContent=msg;
+  b.style.display='flex';
+}
+
 async function loadFromFirestore(){
   try{
     setSyncStatus('syncing','☁️ 불러오는 중...');
     const sd=await getDoc(doc(db,'timetable','schedule'));
     if(sd.exists())Object.assign(scheduleData,sd.data());
+    const mp=await getDoc(doc(db,'timetable','memos_private'));
+    if(mp.exists())Object.assign(memoPrivate,mp.data());
     const ms=await getDoc(doc(db,'timetable','memos_shared'));
     if(ms.exists())Object.assign(memoShared,ms.data());
-    setSyncStatus('saved','✅ 연결됨');
+    dataLoaded=true;            // ✅ 정상 로드 완료 → 이제부터 저장 허용
+    writeCache();               // 로컬 백업 갱신
+    setSyncStatus('saved','✅ 로드 완료');
     setTimeout(()=>setSyncStatus('',''),2000);
-    renderCalendar();renderTimetable();renderMemoArea();renderSummary();
-    // 실시간 감지
-    onSnapshot(doc(db,'timetable','schedule'),snap=>{
-      if(snap.exists()){Object.assign(scheduleData,snap.data());renderTimetable();renderSummary();}
-    });
-    onSnapshot(doc(db,'timetable','memos_shared'),snap=>{
-      if(snap.exists()){Object.assign(memoShared,snap.data());renderMemoArea();}
-    });
+    renderAll();
+    setupMemoAutoSave();
   }catch(e){
-    setSyncStatus('error','❌ 연결 실패');
-    renderCalendar();renderTimetable();renderMemoArea();renderSummary();
+    // 클라우드 로드 실패 → 로컬 백업이 있으면 그것으로 복구, 없으면 편집 잠금
+    const cache=readCache();
+    if(cache){
+      Object.assign(scheduleData,cache.schedule||{});
+      Object.assign(memoPrivate,cache.memoPrivate||{});
+      Object.assign(memoShared,cache.memoShared||{});
+      dataLoaded=true;          // 로컬 백업 기준으로 작업 계속 + 재동기화 허용
+      setSyncStatus('error','⚠️ 오프라인: 로컬 백업 사용 중');
+      renderAll();
+      setupMemoAutoSave();
+    }else{
+      dataLoaded=false;         // ⛔ 저장 절대 금지
+      renderAll();
+      setSyncStatus('error','❌ 연결 실패 (편집 잠김)');
+      showLockBanner('클라우드에서 데이터를 불러오지 못했습니다.');
+    }
   }
 }
-function saveScheduleToFirestore(){}
-function saveMemoToFirestore(){}
+async function saveScheduleToFirestore(){
+  if(!dataLoaded){return;} // ⛔ 로드 전이면 저장 금지 (빈 값 덮어쓰기 방지)
+  try{setSyncStatus('syncing','💾 저장 중...');
+    await setDoc(doc(db,'timetable','schedule'),scheduleData,{merge:true});
+    writeCache();
+    setSyncStatus('saved','✅ 저장됨');setTimeout(()=>setSyncStatus('',''),2000);
+  }catch(e){setSyncStatus('error','❌ 저장 실패');}
+}
+async function saveMemoToFirestore(type){
+  if(!dataLoaded){return;} // ⛔ 로드 전 저장 금지
+  try{
+    if(type==='private')await setDoc(doc(db,'timetable','memos_private'),memoPrivate,{merge:true});
+    else await setDoc(doc(db,'timetable','memos_shared'),memoShared,{merge:true});
+    writeCache();
+    const ind=document.getElementById('memo-saved-'+type);
+    if(ind){ind.classList.add('show');setTimeout(()=>ind.classList.remove('show'),2000);}
+  }catch(e){setSyncStatus('error','❌ 메모 저장 실패');}
+}
 window.saveScheduleToFirestore=saveScheduleToFirestore;
 window.saveMemoToFirestore=saveMemoToFirestore;
 loadFromFirestore();
